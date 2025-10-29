@@ -1,0 +1,20 @@
+{
+  "xsappname": "Customerappcds watch",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.RiskManager",
+      "description": "RiskManager"
+    }
+  ],
+  "attributes": [],
+  "role-templates": [
+    {
+      "name": "RiskManager",
+      "description": "generated",
+      "scope-references": [
+        "$XSAPPNAME.RiskManager"
+      ],
+      "attribute-references": []
+    }
+  ]
+}

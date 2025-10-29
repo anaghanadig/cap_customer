@@ -1,0 +1,177 @@
+_schema-version: 3.3.0
+ID: cap_customer
+version: 1.0.0
+description: "A simple CAP project."
+parameters:
+  enable-parallel-deployments: true
+  deploy_mode: html5-repo
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production
+modules:
+  - name: cap_customer-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      instances: 1
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm-ci
+    provides:
+      - name: srv-api # required by consumers of CAP services (e.g. approuter)
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: cap_customer-auth
+      - name: cap_customer-db
+      - name: cap_customer-destination
+
+  - name: cap_customer-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    requires:
+      - name: cap_customer-db
+
+  - name: cap_customer-app-deployer
+    type: com.sap.application.content
+    path: .
+    requires:
+      - name: cap_customer-auth
+      - name: srv-api
+      - name: cap_customer-html5-repo-host
+        parameters:
+          content-target: true
+          config:
+            HTML5Runtime_enabled: true
+    build-parameters:
+      build-result: resources/
+      requires:
+        - name: cap_customercustomer
+          artifacts:
+            - customer.zip
+          target-path: resources/
+    parameters:
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            existing_destinations_policy: update
+            destinations:
+              - Name: customersrv-api
+                URL: ~{srv-api/srv-url}
+                Authentication: NoAuthentication
+                Type: HTTP
+                ProxyType: Internet
+                HTML5.ForwardAuthToken: true
+                HTML5.DynamicDestination: true
+              - Name: ui5
+                URL: https://ui5.sap.com
+                Authentication: NoAuthentication
+                Type: HTTP
+                ProxyType: Internet
+
+  - name: cap_customercustomer
+    type: html5
+    path: app/customer
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm ci
+        - npm run build
+      supported-platforms:
+        []
+
+  - name: cap_customer-destinations
+    type: com.sap.application.content
+    requires:
+      - name: cap_customer-auth
+        parameters:
+          service-key:
+            name: cap_customer-auth-key
+      - name: cap_customer-html5-repo-host
+        parameters:
+          service-key:
+            name: cap_customer-html5-repo-host-key
+      - name: srv-api
+      - name: cap_customer-destination
+        parameters:
+          content-target: true
+    build-parameters:
+      no-source: true
+    parameters:
+      content:
+        instance:
+          existing_destinations_policy: update
+          destinations:
+            - Name: cap_customer-html5-repository
+              ServiceInstanceName: cap_customer-html5-repo-host
+              ServiceKeyName: cap_customer-html5-repo-host-key
+              sap.cloud.service: cap_customer.service
+            - Name: cap_customer-auth
+              Authentication: OAuth2UserTokenExchange
+              ServiceInstanceName: cap_customer-auth
+              ServiceKeyName: cap_customer-auth-key
+              sap.cloud.service: cap_customer.service
+
+resources:
+  - name: cap_customer-auth
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: cap_customer-${org}-${space}
+        tenant-mode: dedicated
+        role-collections:
+          - name: 'RiskManager (cap_customer ${org}-${space})'
+            description: 'generated'
+            role-template-references:
+              - '$XSAPPNAME.RiskManager'
+  - name: cap_customer-db
+    type: com.sap.xs.hdi-container
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+  - name: cap_customer-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            existing_destinations_policy: update
+            destinations:
+              - Name: srv-api
+                URL: ~{srv-api/srv-url}
+                Authentication: NoAuthentication
+                Type: HTTP
+                ProxyType: Internet
+                HTML5.ForwardAuthToken: true
+                HTML5.DynamicDestination: true
+    requires:
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api # must be used in xs-app.json as well
+          url: ~{srv-url}
+          forwardAuthToken: true
+
+  - name: cap_customer-html5-repo-host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+  - name: cap_customer-html5-runtime
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-runtime
